@@ -1,1 +1,147 @@
+Here’s an enhanced approach to achieve what you’re looking for:
 
+Goal:
+
+You want to store variances found during data comparisons into a dedicated variance logging table. This table captures all key columns, variance details, and dynamic metadata (HealthPlan, ProcessID, FileName), enabling either direct client export or integration with a Power BI report.
+
+⸻
+
+Step 1: Create Variance Logging Table
+
+Define a dedicated table to hold variances identified during comparisons:
+
+CREATE TABLE DataVarianceLog (
+    VarianceID INT IDENTITY PRIMARY KEY,
+    HealthPlan NVARCHAR(100),
+    ProcessID INT,
+    FileName NVARCHAR(256),
+    IssueType NVARCHAR(50), -- e.g., 'Mismatch in Dynamic Table', 'Mismatch in Standard Table'
+    ClaimNumber NVARCHAR(100),
+    ClaimLine NVARCHAR(50),
+    DOSFrom DATE,
+    PaidDate DATE,
+    ServiceCode NVARCHAR(50),
+    PaidAmount DECIMAL(18,2),
+    MemberID NVARCHAR(100),
+    LoggedDate DATETIME DEFAULT GETDATE()
+);
+
+(Adjust column sizes/types according to actual data.)
+
+⸻
+
+Step 2: Dynamic SQL Procedure for Variance Logging
+
+Here’s how you’d create the stored procedure to automate comparisons and logging variances dynamically:
+
+CREATE PROCEDURE usp_LogDataVariances
+    @DynamicTable NVARCHAR(128),
+    @ProcessID INT,
+    @FileName NVARCHAR(256),
+    @DOSStart DATE,
+    @DOSEnd DATE,
+    @PaidDateStart DATE,
+    @PaidDateEnd DATE,
+    @HealthPlan NVARCHAR(100)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @StandardTable NVARCHAR(128) = 'StandardTable';
+    DECLARE @sql NVARCHAR(MAX), @joinConditions NVARCHAR(MAX), @columns NVARCHAR(MAX);
+
+    -- Fetch active columns dynamically
+    SELECT @columns = STRING_AGG(QUOTENAME(ColumnName), ', ')
+    FROM ComparisonColumns
+    WHERE HealthPlan = @HealthPlan AND IsActive = 1;
+
+    -- Build dynamic JOIN conditions for comparison
+    SELECT @joinConditions = STRING_AGG(
+        'ISNULL(S.' + QUOTENAME(ColumnName) + ','''') = ISNULL(D.' + QUOTENAME(ColumnName) + ','''')', 
+        ' AND '
+    )
+    FROM ComparisonColumns
+    WHERE HealthPlan = @HealthPlan AND IsActive = 1;
+
+    SET @sql = '
+    INSERT INTO DataVarianceLog (HealthPlan, ProcessID, FileName, IssueType, ClaimNumber, ClaimLine, DOSFrom, PaidDate, ServiceCode, PaidAmount, MemberID)
+    SELECT 
+        ''' + @HealthPlan + ''' AS HealthPlan,
+        ' + CAST(@ProcessID AS NVARCHAR(20)) + ' AS ProcessID,
+        ''' + @FileName + ''' AS FileName,
+        ''Mismatch in Dynamic Table'' AS IssueType,
+        D.ClaimNumber, D.ClaimLine, D.DOSFrom, D.PaidDate, D.ServiceCode, D.PaidAmount, D.MemberID
+    FROM ' + QUOTENAME(@DynamicTable) + ' AS D
+    LEFT JOIN ' + QUOTENAME(@StandardTable) + ' AS S
+        ON ' + @joinConditions + '
+    WHERE S.ClaimNumber IS NULL
+        AND (D.DOSFrom BETWEEN @DOSStart AND @DOSEnd)
+        AND (D.PaidDate BETWEEN @PaidDateStart AND @PaidDateEnd)
+
+    UNION ALL
+
+    SELECT 
+        ''' + @HealthPlan + ''' AS HealthPlan,
+        ' + CAST(@ProcessID AS NVARCHAR(20)) + ' AS ProcessID,
+        ''' + @FileName + ''' AS FileName,
+        ''Mismatch in Standard Table'' AS IssueType,
+        S.ClaimNumber, S.ClaimLine, S.DOSFrom, S.PaidDate, S.ServiceCode, S.PaidAmount, S.MemberID
+    FROM ' + QUOTENAME(@StandardTable) + ' AS S
+    LEFT JOIN ' + QUOTENAME(@DynamicTable) + ' AS D
+        ON ' + @joinConditions + '
+    WHERE D.ClaimNumber IS NULL
+        AND (S.DOSFrom BETWEEN @DOSStart AND @DOSEnd)
+        AND (S.PaidDate BETWEEN @PaidDateStart AND @PaidDateEnd);
+    ';
+
+    EXEC sp_executesql @sql,
+        N'@DOSStart DATE, @DOSEnd DATE, @PaidDateStart DATE, @PaidDateEnd DATE',
+        @DOSStart, @DOSEnd, @PaidDateStart, @PaidDateEnd;
+
+END;
+
+
+
+⸻
+
+Step 3: Execution Example
+
+Here’s how you’d call your stored procedure:
+
+EXEC usp_LogDataVariances
+    @DynamicTable = 'ClaimTable_20240323',
+    @ProcessID = 123,
+    @FileName = 'Claims_File_20240323.csv',
+    @DOSStart = '2024-01-01',
+    @DOSEnd = '2024-02-01',
+    @PaidDateStart = '2024-01-15',
+    @PaidDateEnd = '2024-02-15',
+    @HealthPlan = 'HealthPlanA';
+
+
+
+⸻
+
+Step 4: Power BI Integration (Recommended)
+
+Once your variance log table (DataVarianceLog) is populated, you can connect Power BI directly to SQL Server to visualize variance data:
+	•	In Power BI Desktop:
+	•	Connect using the SQL Server connector.
+	•	Load the DataVarianceLog table directly.
+	•	Build interactive reports enabling users to drill into variances by HealthPlan, ProcessID, FileName, or date range.
+
+⸻
+
+Additional Recommendations:
+	•	Performance: Consider indexing HealthPlan, ProcessID, ClaimNumber, and date columns for efficient querying.
+	•	Scheduling: Automate execution through SQL Server Agent jobs.
+	•	Logging: Expand logging to include variance counts or summary statistics for better reporting.
+
+⸻
+
+Advantages of This Approach:
+	•	Flexibility: Easily adaptable to new health plans or column definitions.
+	•	Clarity: Variances are clearly documented, facilitating effective client communication.
+	•	Scalability: Easy integration with BI solutions, enhancing visibility.
+
+This robust structure ensures smooth variance identification and client communication via Power BI or exports.
