@@ -164,3 +164,138 @@ Advantages of This Approach:
 	•	Compatibility: Fully SQL Server 2016 compliant without relying on modern functions like STRING_AGG.
 
 Feel free to review this carefully and let me know if you have further refinements!
+
+
+
+
+
+Absolutely! Using intermediate temporary tables to pre-filter and store relevant subsets before comparing is a best practice for performance, especially with large tables.
+
+Here’s a clear and structured approach:
+
+⸻
+
+Step 1: Create Temp Table Subsets First
+
+Within your stored procedure, create two temp tables (#DynamicSubset and #StandardSubset) that apply your filters beforehand, significantly reducing the comparison dataset size.
+
+Here’s a structured way:
+
+-- Temp Dynamic table subset
+DECLARE @DynamicSQL NVARCHAR(MAX);
+SET @DynamicSQL = '
+SELECT 
+    ' + @DynClaimNumber + ' AS ClaimNumber,
+    ' + @DynClaimLine + ' AS ClaimLine,
+    ' + @DynDOSFrom + ' AS DOSFrom,
+    ' + @DynPaidDate + ' AS PaidDate,
+    ' + @DynServiceCode + ' AS ServiceCode,
+    ' + @DynPaidAmount + ' AS PaidAmount,
+    ' + @DynMemberID + ' AS MemberID
+INTO #DynamicSubset
+FROM ' + QUOTENAME(@DynamicTable) + ' AS D
+WHERE D.' + QUOTENAME(@DynDOSFrom) + ' BETWEEN @DOSStart AND @DOSEnd
+  AND D.' + QUOTENAME(@DynPaidDate) + ' BETWEEN @PaidDateStart AND @PaidDateEnd
+  ' + ISNULL(@DynFilter, '') + ';
+';
+
+EXEC sp_executesql @DynamicSQL,
+    N'@DOSStart DATE, @DOSEnd DATE, @PaidDateStart DATE, @PaidDateEnd DATE',
+    @DOSStart, @DOSEnd, @PaidDateStart, @PaidDateEnd;
+
+-- Add indexes for faster joins
+CREATE CLUSTERED INDEX IDX_DynSubset ON #DynamicSubset (ClaimNumber, ClaimLine, DOSFrom, PaidDate);
+
+
+
+⸻
+
+Similarly, create a temp subset of your Standard table:
+
+-- Temp Standard table subset
+SELECT 
+    ClaimNumber,
+    ClaimLine,
+    DOSFrom,
+    PaidDate,
+    ServiceCode,
+    PaidAmount,
+    MemberID
+INTO #StandardSubset
+FROM StandardTable AS S
+WHERE S.DOSFrom BETWEEN @DOSStart AND @DOSEnd
+  AND S.PaidDate BETWEEN @PaidDateStart AND @PaidDateEnd
+  ' + ISNULL(@StdFilter, '') + ';
+
+-- Add indexes for faster joins
+CREATE CLUSTERED INDEX IDX_StdSubset ON #StandardSubset (ClaimNumber, ClaimLine, DOSFrom, PaidDate);
+
+
+
+⸻
+
+Step 2: Run Variance Comparisons on Temp Tables
+
+Now, perform your comparisons against these pre-filtered temp tables:
+
+-- Insert into your DataVarianceLog from subsets
+INSERT INTO DataVarianceLog (HealthPlan, ProcessID, FileName, IssueType, ClaimNumber, ClaimLine, DOSFrom, PaidDate, ServiceCode, PaidAmount, MemberID)
+SELECT 
+    @HealthPlan, @ProcessID, @FileName,
+    'Mismatch in Dynamic Table',
+    D.ClaimNumber, D.ClaimLine, D.DOSFrom, D.PaidDate, D.ServiceCode, D.PaidAmount, D.MemberID
+FROM #DynamicSubset AS D
+LEFT JOIN #StandardSubset AS S
+    ON ISNULL(S.ClaimNumber, '') = ISNULL(D.ClaimNumber, '')
+    AND ISNULL(S.ClaimLine, '') = ISNULL(D.ClaimLine, '')
+    AND ISNULL(S.DOSFrom, '') = ISNULL(D.DOSFrom, '')
+    AND ISNULL(S.PaidDate, '') = ISNULL(D.PaidDate, '')
+    AND ISNULL(S.ServiceCode, '') = ISNULL(D.ServiceCode, '')
+    AND ISNULL(S.PaidAmount, '') = ISNULL(D.PaidAmount, '')
+    AND ISNULL(S.MemberID, '') = ISNULL(D.MemberID, '')
+WHERE S.ClaimNumber IS NULL
+
+UNION ALL
+
+SELECT 
+    @HealthPlan, @ProcessID, @FileName,
+    'Mismatch in Standard Table',
+    S.ClaimNumber, S.ClaimLine, S.DOSFrom, S.PaidDate, S.ServiceCode, S.PaidAmount, S.MemberID
+FROM #StandardSubset AS S
+LEFT JOIN #DynamicSubset AS D
+    ON ISNULL(S.ClaimNumber, '') = ISNULL(D.ClaimNumber, '')
+    AND ISNULL(S.ClaimLine, '') = ISNULL(D.ClaimLine, '')
+    AND ISNULL(S.DOSFrom, '') = ISNULL(D.DOSFrom, '')
+    AND ISNULL(S.PaidDate, '') = ISNULL(D.PaidDate, '')
+    AND ISNULL(S.ServiceCode, '') = ISNULL(D.ServiceCode, '')
+    AND ISNULL(S.PaidAmount, '') = ISNULL(D.PaidAmount, '')
+    AND ISNULL(S.MemberID, '') = ISNULL(D.MemberID, '')
+WHERE D.ClaimNumber IS NULL;
+
+
+
+⸻
+
+Step 3: Cleanup
+
+The temporary tables are automatically cleaned up at the end of your stored procedure execution, so no additional steps needed.
+
+⸻
+
+Performance Advantages:
+	•	Efficiency: Pre-filtering significantly reduces comparison dataset size.
+	•	Faster Joins: Temporary table indexing greatly improves JOIN performance.
+	•	Reduced Load: Lowers resource consumption on your database.
+
+⸻
+
+Summary of Steps Clearly Stated:
+	1.	Create subsets with temp tables.
+	2.	Add indexes to subsets.
+	3.	Perform comparison using these small subsets.
+	4.	Log variances into your variance table.
+	5.	Temp tables auto-drop at procedure completion.
+
+⸻
+
+This structure ensures clarity, efficiency, and scalability in your variance detection process, especially with large data. Let me know if you have any questions or additional refinements!
