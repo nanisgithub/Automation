@@ -1,241 +1,51 @@
-Here’s a structured, robust approach to designing this comparison process in SQL Server 2019. I’ll break it down step by step to ensure clarity, flexibility, and maintainability.
+Here’s a robust and flexible solution incorporating your latest requirements clearly and effectively for SQL Server 2016, ensuring:
+	•	Column mapping between Standard and Dynamic tables
+	•	Ability to configure additional filters dynamically (per HealthPlan/File)
+	•	Date range filters
+	•	Using FOR XML PATH instead of STRING_AGG
 
 ⸻
 
-Overview:
+Step-by-Step Implementation:
 
-You need to dynamically compare a static “standard” table against a frequently changing table, using dynamic table names, dates, and comparison columns.
+Step 1: Enhanced Metadata Tables
 
-The process involves:
-	•	Declaring dynamic variables for table names and filtering parameters.
-	•	Storing key columns in a metadata table for flexibility.
-	•	Dynamically generating SQL queries for comparisons.
+Column mapping between Standard and Dynamic tables:
 
-⸻
-
-Step-by-Step Approach:
-
-Step 1: Define Metadata Table for Comparison Columns
-
-Create a metadata table to define your key comparison columns dynamically.
-
-CREATE TABLE ComparisonColumns (
-    HealthPlan VARCHAR(100),
-    ColumnName VARCHAR(100),
+CREATE TABLE ComparisonColumnMapping (
+    HealthPlan NVARCHAR(100),
+    StandardTableColumn NVARCHAR(100),
+    DynamicTableColumn NVARCHAR(100),
     IsActive BIT DEFAULT 1,
-    PRIMARY KEY (HealthPlan, ColumnName)
+    PRIMARY KEY (HealthPlan, StandardTableColumn, DynamicTableColumn)
 );
 
-Populate the table:
+Additional Filters Table:
 
-INSERT INTO ComparisonColumns (HealthPlan, ColumnName)
+CREATE TABLE ComparisonAdditionalFilters (
+    FilterID INT IDENTITY PRIMARY KEY,
+    HealthPlan NVARCHAR(100),
+    TableType NVARCHAR(20), -- 'Standard' or 'Dynamic'
+    FilterCondition NVARCHAR(MAX), -- Example: 'Status = ''Paid'' AND Region = ''North'''
+    IsActive BIT DEFAULT 1
+);
+
+Example population:
+
+INSERT INTO ComparisonAdditionalFilters (HealthPlan, TableType, FilterCondition)
 VALUES
-('HealthPlanA', 'ClaimNumber'),
-('HealthPlanA', 'ClaimLine'),
-('HealthPlanA', 'DOSFrom'),
-('HealthPlanA', 'PaidDate'),
-('HealthPlanA', 'ServiceCode'),
-('HealthPlanA', 'PaidAmount'),
-('HealthPlanA', 'MemberID');
-
-You can easily add, activate, deactivate, or change these columns later.
-
-⸻
-
-Step 2: Declare Variables for Dynamic Inputs
-
-Your process needs dynamic variables:
-
-DECLARE 
-    @StandardTable NVARCHAR(128) = 'StandardTable', -- never changes
-    @DynamicTable NVARCHAR(128),                    -- changes dynamically
-    @ProcessID INT,
-    @FileName NVARCHAR(256),
-    @DOSStart DATE,
-    @DOSEnd DATE,
-    @PaidDateStart DATE,
-    @PaidDateEnd DATE,
-    @HealthPlan NVARCHAR(100);
-
--- Example assignment:
-SET @DynamicTable = 'ClaimTable_20240323';
-SET @ProcessID = 123;
-SET @FileName = 'Claims_File_20240323.csv';
-SET @DOSStart = '2024-01-01';
-SET @DOSEnd = '2024-02-01';
-SET @PaidDateStart = '2024-01-15';
-SET @PaidDateEnd = '2024-02-15';
-SET @HealthPlan = 'HealthPlanA';
+('HealthPlanA', 'Standard', 'Region = ''East'''),
+('HealthPlanA', 'Dynamic', 'Status = ''Paid'' AND Region = ''East''');
 
 
 
 ⸻
 
-Step 3: Dynamic SQL Generation
+Step 2: Stored Procedure using Dynamic SQL (SQL Server 2016 compatible)
 
-Use dynamic SQL to build a query that compares both tables:
-	•	Retrieve active key columns from metadata.
-	•	Build dynamic joins and WHERE conditions.
+Here’s a comprehensive stored procedure:
 
-Here’s a complete example of how to build such dynamic SQL:
-
-DECLARE @sql NVARCHAR(MAX), @columns NVARCHAR(MAX), @joinConditions NVARCHAR(MAX), @dateConditions NVARCHAR(MAX);
-
--- Retrieve dynamic columns for comparison
-SELECT @columns = STRING_AGG(QUOTENAME(ColumnName), ', ')
-FROM ComparisonColumns
-WHERE HealthPlan = @HealthPlan AND IsActive = 1;
-
--- Generate join conditions dynamically
-SELECT @joinConditions = STRING_AGG(
-    'ISNULL(S.' + QUOTENAME(ColumnName) + ','''') = ISNULL(D.' + QUOTENAME(ColumnName) + ','''')', 
-    ' AND '
-)
-FROM ComparisonColumns
-WHERE HealthPlan = @HealthPlan AND IsActive = 1;
-
--- Generate date conditions dynamically (assuming DOSFrom and PaidDate are standard across HealthPlans)
-SET @dateConditions = '
-    (D.DOSFrom BETWEEN @DOSStart AND @DOSEnd) AND
-    (D.PaidDate BETWEEN @PaidDateStart AND @PaidDateEnd)
-';
-
--- Build the dynamic SQL query
-SET @sql = '
-SELECT ''Mismatch in Dynamic Table'' AS IssueType, D.*
-FROM ' + QUOTENAME(@DynamicTable) + ' AS D
-LEFT JOIN ' + QUOTENAME(@StandardTable) + ' AS S
-    ON ' + @joinConditions + '
-WHERE S.ClaimNumber IS NULL
-    AND ' + @dateConditions + '
-
-UNION ALL
-
-SELECT ''Mismatch in Standard Table'', S.*
-FROM ' + QUOTENAME(@StandardTable) + ' AS S
-LEFT JOIN ' + QUOTENAME(@DynamicTable) + ' AS D
-    ON ' + @joinConditions + '
-WHERE D.ClaimNumber IS NULL
-    AND ' + @dateConditions + ';
-';
-
--- Execute dynamic SQL
-EXEC sp_executesql @sql,
-    N'@DOSStart DATE, @DOSEnd DATE, @PaidDateStart DATE, @PaidDateEnd DATE',
-    @DOSStart, @DOSEnd, @PaidDateStart, @PaidDateEnd;
-
-
-
-⸻
-
-Explanation of the above logic:
-	•	The dynamic SQL above compares rows present in one table but missing in another within the date ranges.
-	•	It dynamically picks comparison columns from your ComparisonColumns metadata.
-	•	The STRING_AGG() function builds comma-separated or logical condition strings dynamically.
-
-⸻
-
-Additional Recommendations:
-
-Error Handling & Logging
-	•	Create a logging table to track comparison results and process history:
-
-CREATE TABLE ComparisonLog (
-    ComparisonLogID INT IDENTITY PRIMARY KEY,
-    ProcessID INT,
-    FileName NVARCHAR(256),
-    DynamicTable NVARCHAR(128),
-    HealthPlan NVARCHAR(100),
-    ComparisonDate DATETIME DEFAULT GETDATE(),
-    DifferencesFound BIT,
-    RowCount INT,
-    Notes NVARCHAR(MAX)
-);
-
-	•	After the comparison, insert log data:
-
-INSERT INTO ComparisonLog (ProcessID, FileName, DynamicTable, HealthPlan, DifferencesFound, RowCount, Notes)
-VALUES (@ProcessID, @FileName, @DynamicTable, @HealthPlan, 1, @@ROWCOUNT, 'Comparison completed successfully.');
-
-
-
-⸻
-
-Automation & Scheduling:
-	•	Once verified, encapsulate this logic into a stored procedure or SQL Agent Job for automated execution.
-
-Example procedure wrapper:
-
-CREATE PROCEDURE usp_CompareDynamicTables
-    @DynamicTable NVARCHAR(128),
-    @ProcessID INT,
-    @FileName NVARCHAR(256),
-    @DOSStart DATE,
-    @DOSEnd DATE,
-    @PaidDateStart DATE,
-    @PaidDateEnd DATE,
-    @HealthPlan NVARCHAR(100)
-AS
-BEGIN
-    -- [Put Dynamic SQL comparison logic here]
-END;
-
-
-
-⸻
-
-Advantages of This Approach:
-	•	Highly flexible and easy to maintain.
-	•	No hard-coded values; fully dynamic driven by metadata.
-	•	Easily scalable to handle new health plans and columns.
-
-⸻
-
-Next Steps:
-	•	Implement and test this logic incrementally.
-	•	Ensure adequate indexing on join columns for performance.
-
-⸻
-
-This structured approach gives you maintainability, flexibility, and scalability, fully leveraging the power of SQL Server’s dynamic capabilities.
-
-Here’s an enhanced approach to achieve what you’re looking for:
-
-Goal:
-
-You want to store variances found during data comparisons into a dedicated variance logging table. This table captures all key columns, variance details, and dynamic metadata (HealthPlan, ProcessID, FileName), enabling either direct client export or integration with a Power BI report.
-
-⸻
-
-Step 1: Create Variance Logging Table
-
-Define a dedicated table to hold variances identified during comparisons:
-
-CREATE TABLE DataVarianceLog (
-    VarianceID INT IDENTITY PRIMARY KEY,
-    HealthPlan NVARCHAR(100),
-    ProcessID INT,
-    FileName NVARCHAR(256),
-    IssueType NVARCHAR(50), -- e.g., 'Mismatch in Dynamic Table', 'Mismatch in Standard Table'
-    ClaimNumber NVARCHAR(100),
-    ClaimLine NVARCHAR(50),
-    DOSFrom DATE,
-    PaidDate DATE,
-    ServiceCode NVARCHAR(50),
-    PaidAmount DECIMAL(18,2),
-    MemberID NVARCHAR(100),
-    LoggedDate DATETIME DEFAULT GETDATE()
-);
-
-(Adjust column sizes/types according to actual data.)
-
-⸻
-
-Step 2: Dynamic SQL Procedure for Variance Logging
-
-Here’s how you’d create the stored procedure to automate comparisons and logging variances dynamically:
-
-CREATE PROCEDURE usp_LogDataVariances
+CREATE PROCEDURE usp_CompareAndLogDataVariances
     @DynamicTable NVARCHAR(128),
     @ProcessID INT,
     @FileName NVARCHAR(256),
@@ -248,68 +58,93 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    DECLARE @StandardTable NVARCHAR(128) = 'StandardTable';
-    DECLARE @sql NVARCHAR(MAX), @joinConditions NVARCHAR(MAX), @columns NVARCHAR(MAX);
+    DECLARE 
+        @StandardTable NVARCHAR(128) = 'StandardTable',
+        @sql NVARCHAR(MAX),
+        @joinConditions NVARCHAR(MAX) = '',
+        @StdFilter NVARCHAR(MAX) = '',
+        @DynFilter NVARCHAR(MAX) = '',
+        @Column NVARCHAR(200);
 
-    -- Fetch active columns dynamically
-    SELECT @columns = STRING_AGG(QUOTENAME(ColumnName), ', ')
-    FROM ComparisonColumns
-    WHERE HealthPlan = @HealthPlan AND IsActive = 1;
+    -- Build JOIN conditions
+    SELECT @joinConditions = STUFF((
+        SELECT ' AND ISNULL(S.' + QUOTENAME(StandardTableColumn) + ','''') = ISNULL(D.' + QUOTENAME(DynamicTableColumn) + ','''')'
+        FROM ComparisonColumnMapping
+        WHERE HealthPlan = @HealthPlan AND IsActive = 1
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 5, '');
 
-    -- Build dynamic JOIN conditions for comparison
-    SELECT @joinConditions = STRING_AGG(
-        'ISNULL(S.' + QUOTENAME(ColumnName) + ','''') = ISNULL(D.' + QUOTENAME(ColumnName) + ','''')', 
-        ' AND '
-    )
-    FROM ComparisonColumns
-    WHERE HealthPlan = @HealthPlan AND IsActive = 1;
+    -- Fetch additional filters
+    SELECT @StdFilter = STUFF((
+        SELECT ' AND (' + FilterCondition + ')'
+        FROM ComparisonAdditionalFilters
+        WHERE HealthPlan = @HealthPlan AND TableType = 'Standard' AND IsActive = 1
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 5, '');
 
+    SELECT @DynFilter = STUFF((
+        SELECT ' AND (' + FilterCondition + ')'
+        FROM ComparisonAdditionalFilters
+        WHERE HealthPlan = @HealthPlan AND TableType = 'Dynamic' AND IsActive = 1
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 5, '');
+
+    -- Fetch Dynamic Column Names for insertion
+    DECLARE 
+        @DynClaimNumber NVARCHAR(128), @DynClaimLine NVARCHAR(128),
+        @DynDOSFrom NVARCHAR(128), @DynPaidDate NVARCHAR(128),
+        @DynServiceCode NVARCHAR(128), @DynPaidAmount NVARCHAR(128),
+        @DynMemberID NVARCHAR(128);
+
+    SELECT
+        @DynClaimNumber = MAX(CASE WHEN StandardTableColumn = 'ClaimNumber' THEN DynamicTableColumn END),
+        @DynClaimLine = MAX(CASE WHEN StandardTableColumn = 'ClaimLine' THEN DynamicTableColumn END),
+        @DynDOSFrom = MAX(CASE WHEN StandardTableColumn = 'DOSFrom' THEN DynamicTableColumn END),
+        @DynPaidDate = MAX(CASE WHEN StandardTableColumn = 'PaidDate' THEN DynamicTableColumn END),
+        @DynServiceCode = MAX(CASE WHEN StandardTableColumn = 'ServiceCode' THEN DynamicTableColumn END),
+        @DynPaidAmount = MAX(CASE WHEN StandardTableColumn = 'PaidAmount' THEN DynamicTableColumn END),
+        @DynMemberID = MAX(CASE WHEN StandardTableColumn = 'MemberID' THEN DynamicTableColumn END)
+    FROM ComparisonColumnMapping
+    WHERE HealthPlan = @HealthPlan;
+
+    -- Build dynamic SQL
     SET @sql = '
     INSERT INTO DataVarianceLog (HealthPlan, ProcessID, FileName, IssueType, ClaimNumber, ClaimLine, DOSFrom, PaidDate, ServiceCode, PaidAmount, MemberID)
     SELECT 
-        ''' + @HealthPlan + ''' AS HealthPlan,
-        ' + CAST(@ProcessID AS NVARCHAR(20)) + ' AS ProcessID,
-        ''' + @FileName + ''' AS FileName,
-        ''Mismatch in Dynamic Table'' AS IssueType,
-        D.ClaimNumber, D.ClaimLine, D.DOSFrom, D.PaidDate, D.ServiceCode, D.PaidAmount, D.MemberID
+        ''' + @HealthPlan + ''', ' + CAST(@ProcessID AS NVARCHAR(20)) + ', ''' + @FileName + ''', 
+        ''Mismatch in Dynamic Table'', 
+        D.' + QUOTENAME(@DynClaimNumber) + ', D.' + QUOTENAME(@DynClaimLine) + ',
+        D.' + QUOTENAME(@DynDOSFrom) + ', D.' + QUOTENAME(@DynPaidDate) + ',
+        D.' + QUOTENAME(@DynServiceCode) + ', D.' + QUOTENAME(@DynPaidAmount) + ',
+        D.' + QUOTENAME(@DynMemberID) + '
     FROM ' + QUOTENAME(@DynamicTable) + ' AS D
-    LEFT JOIN ' + QUOTENAME(@StandardTable) + ' AS S
-        ON ' + @joinConditions + '
-    WHERE S.ClaimNumber IS NULL
-        AND (D.DOSFrom BETWEEN @DOSStart AND @DOSEnd)
-        AND (D.PaidDate BETWEEN @PaidDateStart AND @PaidDateEnd)
+    LEFT JOIN ' + QUOTENAME(@StandardTable) + ' AS S ON ' + @joinConditions + '
+    WHERE S.' + QUOTENAME('ClaimNumber') + ' IS NULL
+      AND D.' + QUOTENAME(@DynDOSFrom) + ' BETWEEN @DOSStart AND @DOSEnd
+      AND D.' + QUOTENAME(@DynPaidDate) + ' BETWEEN @PaidDateStart AND @PaidDateEnd ' + ISNULL(@DynFilter, '') + '
 
     UNION ALL
 
     SELECT 
-        ''' + @HealthPlan + ''' AS HealthPlan,
-        ' + CAST(@ProcessID AS NVARCHAR(20)) + ' AS ProcessID,
-        ''' + @FileName + ''' AS FileName,
-        ''Mismatch in Standard Table'' AS IssueType,
+        ''' + @HealthPlan + ''', ' + CAST(@ProcessID AS NVARCHAR(20)) + ', ''' + @FileName + ''', 
+        ''Mismatch in Standard Table'', 
         S.ClaimNumber, S.ClaimLine, S.DOSFrom, S.PaidDate, S.ServiceCode, S.PaidAmount, S.MemberID
     FROM ' + QUOTENAME(@StandardTable) + ' AS S
-    LEFT JOIN ' + QUOTENAME(@DynamicTable) + ' AS D
-        ON ' + @joinConditions + '
-    WHERE D.ClaimNumber IS NULL
-        AND (S.DOSFrom BETWEEN @DOSStart AND @DOSEnd)
-        AND (S.PaidDate BETWEEN @PaidDateStart AND @PaidDateEnd);
-    ';
+    LEFT JOIN ' + QUOTENAME(@DynamicTable) + ' AS D ON ' + @joinConditions + '
+    WHERE D.' + QUOTENAME(@DynClaimNumber) + ' IS NULL
+      AND S.DOSFrom BETWEEN @DOSStart AND @DOSEnd
+      AND S.PaidDate BETWEEN @PaidDateStart AND @PaidDateEnd ' + ISNULL(@StdFilter, '') + ';';
 
+    -- Execute dynamic SQL
     EXEC sp_executesql @sql,
         N'@DOSStart DATE, @DOSEnd DATE, @PaidDateStart DATE, @PaidDateEnd DATE',
         @DOSStart, @DOSEnd, @PaidDateStart, @PaidDateEnd;
-
 END;
 
 
 
 ⸻
 
-Step 3: Execution Example
+Step 3: Example Execution
 
-Here’s how you’d call your stored procedure:
-
-EXEC usp_LogDataVariances
+EXEC usp_CompareAndLogDataVariances
     @DynamicTable = 'ClaimTable_20240323',
     @ProcessID = 123,
     @FileName = 'Claims_File_20240323.csv',
@@ -323,26 +158,9 @@ EXEC usp_LogDataVariances
 
 ⸻
 
-Step 4: Power BI Integration (Recommended)
-
-Once your variance log table (DataVarianceLog) is populated, you can connect Power BI directly to SQL Server to visualize variance data:
-	•	In Power BI Desktop:
-	•	Connect using the SQL Server connector.
-	•	Load the DataVarianceLog table directly.
-	•	Build interactive reports enabling users to drill into variances by HealthPlan, ProcessID, FileName, or date range.
-
-⸻
-
-Additional Recommendations:
-	•	Performance: Consider indexing HealthPlan, ProcessID, ClaimNumber, and date columns for efficient querying.
-	•	Scheduling: Automate execution through SQL Server Agent jobs.
-	•	Logging: Expand logging to include variance counts or summary statistics for better reporting.
-
-⸻
-
 Advantages of This Approach:
-	•	Flexibility: Easily adaptable to new health plans or column definitions.
-	•	Clarity: Variances are clearly documented, facilitating effective client communication.
-	•	Scalability: Easy integration with BI solutions, enhancing visibility.
+	•	Dynamic Column Mapping: Flexibility to map columns with differing names between tables.
+	•	Additional Filters: Customize filters for specific tables, files, or HealthPlans, enabling exact “apples-to-apples” comparisons.
+	•	Compatibility: Fully SQL Server 2016 compliant without relying on modern functions like STRING_AGG.
 
-This robust structure ensures smooth variance identification and client communication via Power BI or exports.
+Feel free to review this carefully and let me know if you have further refinements!
