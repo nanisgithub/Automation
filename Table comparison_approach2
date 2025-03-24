@@ -1,0 +1,161 @@
+No problem! For SQL Server 2016 (which doesn't have `STRING_AGG`), we'll use `FOR XML PATH` for string concatenation. Here's the revised approach:
+
+---
+
+### 1. **Configuration Tables** (Same as Before)
+```sql
+CREATE TABLE HealthPlanConfig (
+    HealthPlanID INT PRIMARY KEY,
+    HealthPlanName VARCHAR(50),
+    StandardTableName VARCHAR(100),
+    VariableTableName VARCHAR(100),
+    ProcessID INT,
+    FileNamePattern VARCHAR(100)
+);
+
+CREATE TABLE ColumnMapping (
+    HealthPlanID INT,
+    StandardColumn VARCHAR(100),
+    VariableColumn VARCHAR(100),
+    IsKeyColumn BIT, -- 1=Key, 0=Compare
+    PRIMARY KEY (HealthPlanID, StandardColumn)
+);
+
+CREATE TABLE DateComparisonConfig (
+    HealthPlanID INT,
+    DateType VARCHAR(20),
+    StandardStartDateColumn VARCHAR(100),
+    StandardEndDateColumn VARCHAR(100),
+    VariableStartDateColumn VARCHAR(100),
+    VariableEndDateColumn VARCHAR(100)
+);
+
+CREATE TABLE CustomRules (
+    HealthPlanID INT,
+    RuleName VARCHAR(100),
+    RuleSQL NVARCHAR(MAX)
+);
+```
+
+---
+
+### 2. **Revised Stored Procedure (SQL 2016 Compatible)**
+```sql
+CREATE PROCEDURE CompareTables
+    @ProcessID INT,
+    @FileName VARCHAR(100),
+    @HealthPlanID INT,
+    @DOS_Start DATE,
+    @DOS_End DATE,
+    @PaidDate_Start DATE,
+    @PaidDate_End DATE
+AS
+BEGIN
+    DECLARE @SQL NVARCHAR(MAX),
+            @KeyColumns NVARCHAR(MAX),
+            @CompareColumns NVARCHAR(MAX),
+            @DateFilters NVARCHAR(MAX),
+            @CustomRules NVARCHAR(MAX);
+
+    -- Get Key Columns (Using FOR XML PATH instead of STRING_AGG)
+    SELECT @KeyColumns = STUFF((
+        SELECT ', std.' + QUOTENAME(StandardColumn) 
+        FROM ColumnMapping 
+        WHERE HealthPlanID = @HealthPlanID AND IsKeyColumn = 1
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '');
+
+    -- Get Compare Columns
+    SELECT @CompareColumns = STUFF((
+        SELECT ', std.' + QUOTENAME(StandardColumn) + ' AS Std_' + StandardColumn
+               + ', var.' + QUOTENAME(VariableColumn) + ' AS Var_' + VariableColumn
+        FROM ColumnMapping 
+        WHERE HealthPlanID = @HealthPlanID AND IsKeyColumn = 0
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '');
+
+    -- Date Filters
+    SELECT @DateFilters = 
+        '(std.' + QUOTENAME(StandardStartDateColumn) + ' >= ''' + CONVERT(VARCHAR, @DOS_Start) + ''' 
+        AND std.' + QUOTENAME(StandardEndDateColumn) + ' <= ''' + CONVERT(VARCHAR, @DOS_End) + ''') 
+        AND (var.' + QUOTENAME(VariableStartDateColumn) + ' >= ''' + CONVERT(VARCHAR, @PaidDate_Start) + ''' 
+        AND var.' + QUOTENAME(VariableEndDateColumn) + ' <= ''' + CONVERT(VARCHAR, @PaidDate_End) + ''')'
+    FROM DateComparisonConfig 
+    WHERE HealthPlanID = @HealthPlanID;
+
+    -- Custom Rules (Handle NULLs)
+    SELECT @CustomRules = STUFF((
+        SELECT ' AND ' + RuleSQL 
+        FROM CustomRules 
+        WHERE HealthPlanID = @HealthPlanID
+        FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 5, '');
+
+    -- Build Dynamic SQL
+    SET @SQL = 
+        'SELECT ' + ISNULL(@KeyColumns, '') 
+        + CASE WHEN @CompareColumns IS NOT NULL THEN ', ' + @CompareColumns ELSE '' END +
+        ' INTO #ComparisonResults ' +
+        'FROM ' + (SELECT StandardTableName FROM HealthPlanConfig WHERE HealthPlanID = @HealthPlanID) + ' std ' +
+        'FULL OUTER JOIN ' + (SELECT VariableTableName FROM HealthPlanConfig WHERE HealthPlanID = @HealthPlanID) + ' var ' +
+        ' ON ' + REPLACE(@KeyColumns, 'std.', 'var.') + -- Assumes key columns match
+        ' WHERE ' + @DateFilters +
+        CASE WHEN @CustomRules IS NOT NULL THEN ' AND ' + @CustomRules ELSE '' END + ';' +
+
+        -- Identify discrepancies
+        ' INSERT INTO ComparisonResults ' +
+        ' SELECT ' + CAST(@ProcessID AS VARCHAR) + ', ' + CAST(@HealthPlanID AS VARCHAR) + ', ' +
+        '   COALESCE(std.ClaimNumber, var.ClaimNumber) AS ClaimNumber, ' +
+        '   CASE WHEN std.ClaimNumber IS NULL THEN ''Missing in Standard'' ' +
+        '        WHEN var.ClaimNumber IS NULL THEN ''Missing in Variable'' ' +
+        '        ELSE ''Data Mismatch'' END AS DiscrepancyType ' +
+        ' FROM #ComparisonResults;';
+
+    EXEC sp_executesql @SQL;
+END;
+```
+
+---
+
+### Key Changes for SQL 2016 Compatibility:
+1. **Replaced `STRING_AGG` with `FOR XML PATH`**:
+   - Used `STUFF((... FOR XML PATH('')), 1, 2, '')` to concatenate strings.
+   - Added `.value('.', 'NVARCHAR(MAX)')` to handle XML encoding.
+
+2. **Handled NULL Values**:
+   - Added `ISNULL` and `CASE` statements to avoid concatenation issues with NULLs.
+
+3. **Simplified Joins**:
+   - Assumed key columns have matching names in both tables (adjust if needed).
+
+---
+
+### 3. **Execution Example**
+```sql
+EXEC CompareTables 
+    @ProcessID = 123,
+    @FileName = 'Claims_Q3_2023',
+    @HealthPlanID = 1,
+    @DOS_Start = '2023-01-01',
+    @DOS_End = '2023-03-31',
+    @PaidDate_Start = '2023-04-01',
+    @PaidDate_End = '2023-06-30';
+```
+
+---
+
+### 4. **Performance Tips**
+1. **Index Key Columns**:
+   ```sql
+   CREATE INDEX IX_StandardTable_Key ON dbo.StandardTable (ClaimNumber, MemberID);
+   CREATE INDEX IX_VariableTable_Key ON dbo.VariableTable (ClaimNumber, MemberID);
+   ```
+
+2. **Partition Large Tables** by date ranges if frequently filtered by dates.
+
+3. **Use Temp Tables** for intermediate results instead of subqueries.
+
+---
+
+### 5. **Extensibility**
+- **Add New Health Plans**: Just insert new rows into `HealthPlanConfig`, `ColumnMapping`, etc.
+- **Modify Key Columns**: Update `ColumnMapping` table to change which columns are compared.
+
+This approach ensures compatibility with SQL Server 2016 while maintaining dynamic configurability.
