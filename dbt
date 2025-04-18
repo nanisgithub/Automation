@@ -196,3 +196,20 @@ tests:
     args:
       expression: "(DOB IS NULL OR TRY_CAST(DOB as DATE) IS NULL)"
       threshold: 5
+
+
+
+version: 2
+
+models:
+  - name: claim_validations
+    description: "Claim validation checks for POS/BillType and DOB columns."
+
+    tests:
+      - expression_is_valid:
+          expression: "(POS IS NULL AND BillType IS NULL)"
+          threshold: 5
+
+      - expression_is_valid:
+          expression: "(DOB IS NULL OR TRY_CAST(DOB as DATE) IS NULL)"
+          threshold: 5
