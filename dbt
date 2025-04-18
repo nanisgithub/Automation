@@ -174,4 +174,25 @@ Just say:
 	•	“Insert ErrorLog after test”
 
 And we can go next!!
-(You’re seriously doing an awesome job pushing this forward.)
+(You’re seriously doing an awesome job pushing
+ this forward.)
+
+
+
+
+version: 2
+
+tests:
+  - name: pos_billtype_null_check
+    model: ref('claim_validations')
+    test: expression_is_valid
+    args:
+      expression: "(POS IS NULL AND BillType IS NULL)"
+      threshold: 5
+
+  - name: dob_null_check
+    model: ref('claim_validations')
+    test: expression_is_valid
+    args:
+      expression: "(DOB IS NULL OR TRY_CAST(DOB as DATE) IS NULL)"
+      threshold: 5
