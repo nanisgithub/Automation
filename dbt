@@ -327,3 +327,87 @@ WHERE
       NOT EXISTS (SELECT 1 FROM Contract.MSTR_ICD_Curr MSTR2 WHERE REPLACE(SecondaryDiagCode, '.', '') = MSTR2.DiagnosisCode_NoDec)
     threshold: 5
     test_name: "Primary_Secondary_DXCodes_Check"
+
+
+
+
+
+{% test expression_is_valid(model, expression, threshold, test_name) %}
+
+WITH validation_data AS (
+
+    SELECT
+        *,
+        CASE 
+            WHEN {{ expression }} THEN 1 ELSE 0
+        END AS is_error
+    FROM {{ model }}
+
+)
+
+SELECT
+    CASE
+        WHEN COUNT(*) = 0 THEN 0
+        ELSE (SUM(is_error) * 100.0 / COUNT(*))
+    END AS error_percentage
+FROM validation_data
+HAVING
+    CASE
+        WHEN COUNT(*) = 0 THEN 0
+        ELSE (SUM(is_error) * 100.0 / COUNT(*))
+    END > {{ threshold }}
+
+{% call statement('log_result', fetch_result=False) %}
+
+    DECLARE @total_count INT, @error_count INT, @error_percentage DECIMAL(5,2), @result_status NVARCHAR(10);
+
+    SELECT 
+        @total_count = COUNT(*),
+        @error_count = SUM(is_error)
+    FROM {{ model }};
+
+    IF @total_count = 0
+        SET @error_percentage = 0;
+    ELSE
+        SET @error_percentage = (@error_count * 100.0 / @total_count);
+
+    IF @error_percentage > {{ threshold }}
+        SET @result_status = 'FAIL';
+    ELSE
+        SET @result_status = 'PASS';
+
+    INSERT INTO NonDelegatedClaims.dbo.ndc_validation_summary_log
+    (model_name, test_name, total_count, error_count, threshold, error_percentage, result_status, execution_time, health_plan, process_id)
+    VALUES
+    (
+        '{{ model.name }}',
+        '{{ test_name }}',
+        @total_count,
+        @error_count,
+        {{ threshold }},
+        @error_percentage,
+        @result_status,
+        GETDATE(),
+        '{{ var("healthplan") }}',
+        '{{ var("processid") }}'
+    );
+
+    IF @result_status = 'FAIL'
+    BEGIN
+        INSERT INTO NonDelegatedClaims.dbo.ndc_validation_error_log_detail
+        (health_plan, process_id, model_name, test_name, claim_number, claim_line, execution_time)
+        SELECT
+            '{{ var("healthplan") }}',
+            '{{ var("processid") }}',
+            '{{ model.name }}',
+            '{{ test_name }}',
+            ClaimNumber,
+            ClaimLine,
+            GETDATE()
+        FROM {{ model }}
+        WHERE {{ expression }};
+    END
+
+{% endcall %}
+
+{% endtest %}
