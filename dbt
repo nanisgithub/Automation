@@ -317,3 +317,13 @@ WHERE
 {% endcall %}
 
 {% endtest %}
+
+
+
+- expression_is_valid:
+    expression: >
+      NOT EXISTS (SELECT 1 FROM Contract.MSTR_ICD_Curr MSTR1 WHERE REPLACE(PrimaryDiagCode, '.', '') = MSTR1.DiagnosisCode_NoDec)
+      AND
+      NOT EXISTS (SELECT 1 FROM Contract.MSTR_ICD_Curr MSTR2 WHERE REPLACE(SecondaryDiagCode, '.', '') = MSTR2.DiagnosisCode_NoDec)
+    threshold: 5
+    test_name: "Primary_Secondary_DXCodes_Check"
