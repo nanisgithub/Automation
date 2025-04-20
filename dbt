@@ -213,3 +213,31 @@ models:
       - expression_is_valid:
           expression: "(DOB IS NULL OR TRY_CAST(DOB as DATE) IS NULL)"
           threshold: 5
+
+
+
+
+{% test expression_is_valid(model, expression, threshold) %}
+
+WITH validation_data AS (
+
+    SELECT
+        COUNT(*) AS total_count,
+        SUM(CASE WHEN {{ expression }} THEN 1 ELSE 0 END) AS error_count
+    FROM {{ model }}
+
+)
+
+SELECT
+    CASE
+        WHEN total_count = 0 THEN 0
+        ELSE (error_count * 100.0 / total_count)
+    END AS error_percentage
+FROM validation_data
+WHERE
+    CASE
+        WHEN total_count = 0 THEN 0
+        ELSE (error_count * 100.0 / total_count)
+    END > {{ threshold }}
+
+{% endtest %}
