@@ -21,3 +21,12 @@ error_data AS (
 -- same summary + logging logic as other macros...
 
 {% endtest %}
+
+
+
+- cross_reference_lookup_check:
+    source_columns: ["REPLACE(DX1, '.', '')", "REPLACE(DX2, '.', '')"]
+    lookup_table: "Contract.MSTR_ICD_Curr"
+    lookup_column: "DiagnosisCode_NoDec"
+    threshold: 5
+    test_name: "DX1_DX2_Lookup_Check"
