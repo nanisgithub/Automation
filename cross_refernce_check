@@ -84,3 +84,45 @@ models:
 
     threshold: 5
     test_name: "ClaimStatus_Amount_Logic"
+
+
+
+
+{% test rules_engine_check(model, rules, threshold, test_name) %}
+
+WITH source_data AS (
+    SELECT * FROM {{ model }}
+),
+
+error_data AS (
+    SELECT *
+    FROM {{ model }}
+    WHERE
+        {% for rule in rules %}
+            (
+                {{ rule.column }} IN (
+                    {% for val in rule.match_values %}
+                        '{{ val }}'{% if not loop.last %}, {% endif %}
+                    {% endfor %}
+                )
+                AND CAST({{ rule.amount_column }} AS money) {{ rule.allowed_value_condition }}
+            )
+            {% if not loop.last %}
+                OR
+            {% endif %}
+        {% endfor %}
+)
+
+SELECT
+    CASE
+        WHEN total_records.total_count = 0 THEN 0
+        ELSE (error_records.error_count * 100.0 / total_records.total_count)
+    END AS error_percentage
+FROM
+    (SELECT COUNT(*) AS total_count FROM source_data) AS total_records,
+    (SELECT COUNT(*) AS error_count FROM error_data) AS error_records
+HAVING
+    CASE
+        WHEN total_records.total_count = 0 THEN 0
+        ELSE (error_records.error_count * 100.0 / total_records.total_count)
+    END > {{ threshold }}
