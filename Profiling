@@ -1,1 +1,22 @@
+{% macro profile_columns(model, columns) %}
+    {% set results = [] %}
+    {% for col in columns %}
+        {% set q %}
+            SELECT
+                '{{ col }}' AS column_name,
+                COUNT(*) AS total_count,
+                COUNT(*) - COUNT({{ col }}) AS null_count,
+                CASE WHEN COUNT(*) = 0 THEN 0 ELSE CAST(COUNT(*) - COUNT({{ col }}) AS FLOAT) / COUNT(*) * 100 END AS null_pct,
+                COUNT(DISTINCT {{ col }}) AS distinct_count,
+                MIN({{ col }}) AS min_value,
+                MAX({{ col }}) AS max_value
+            FROM {{ model }}
+        {% endset %}
+        {% do results.append(q) %}
+    {% endfor %}
+    {{ results | join(" UNION ALL\n") }}
+{% endmacro %}
+
+
+
 
