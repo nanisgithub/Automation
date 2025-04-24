@@ -1,25 +1,15 @@
-name: NDC_Data_Validation
-version: '1.0'
-config-version: 2
+{{ config(
+    materialized='ephemeral',
+    tags=['profiling']
+) }}
 
-profile: NDC_Data_Validation
+{% set profile_columns = var('profiling_columns') %}
 
-model-paths: ["models"]
-macro-paths: ["macros"]
-seed-paths: ["seeds"]
-test-paths: ["tests"]
+{{ log_profile_to_summary(
+    ref('NDC_FileValidation_SourceData'),
+    profile_columns,
+    'ColumnProfile'
+) }}
 
-models:
-  NDC_Data_Validation:
-    +materialized: view
 
-    validations:
-      +tags: ['validation']
 
-    profiling:
-      +tags: ['profiling']
-      vars:
-        profiling_columns:
-          - ClaimNumber
-          - MemberID
-          - ServiceCode
