@@ -30,3 +30,39 @@ error_data AS (
     lookup_column: "DiagnosisCode_NoDec"
     threshold: 5
     test_name: "DX1_DX2_Lookup_Check"
+
+
+
+
+
+# models/intermediate/intermediate_models.yml
+models:
+  - name: int_claims_validation_flags
+    columns:
+      - name: is_invalid_denied_claim_payment
+        description: "Flag is TRUE if ClaimStatus is DENIED/D but ServicePaidAmount is not 0."
+        tests:
+          - accepted_values:
+              values: [false] # Test fails if any TRUE values exist for this flag
+              config:
+                severity: warn # Or error
+      - name: is_invalid_reversed_claim_payment
+        description: "Flag is TRUE if ClaimStatus is REVERSED/R but ServicePaidAmount > 0."
+        tests:
+          - accepted_values:
+              values: [false]
+      - name: is_invalid_paid_claim_payment
+        description: "Flag is TRUE if ClaimStatus is PAID/P but ServicePaidAmount < 0."
+        tests:
+          - accepted_values:
+              values: [false]
+      - name: is_invalid_zero_allowed_vs_payment
+        description: "Flag is TRUE if AllowedAmount is 0 but ServicePaidAmount is not 0."
+        tests:
+          - accepted_values:
+              values: [false]
+      - name: is_invalid_zero_submitted_vs_payment
+        description: "Flag is TRUE if SubmittedAmount is 0 but ServicePaidAmount is not 0."
+        tests:
+          - accepted_values:
+              values: [false]
