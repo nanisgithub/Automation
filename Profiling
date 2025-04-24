@@ -28,3 +28,28 @@
     {% endcall %}
 {% endfor %}
 {% endmacro %}
+
+
+
+
+-- ============================================================================
+-- Model: ndc_profile_summary_log.sql
+--
+-- Purpose:
+--   This model exists solely to trigger the log_profile_to_summary macro,
+--   which logs profiling statistics into the ndc_validation_summary_log table.
+--
+-- Note:
+--   This model does not materialize any table or view. It only executes logic.
+--   Setting `materialized='ephemeral'` tells dbt not to persist anything.
+-- ============================================================================
+
+{{ config(
+    materialized='ephemeral'
+) }}
+
+{{ log_profile_to_summary(
+    ref('NDC_FileValidation_SourceData'),
+    var('profiling_columns'),
+    'ColumnProfile'
+) }}
