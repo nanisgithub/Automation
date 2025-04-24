@@ -1,19 +1,12 @@
-version: 2
+{{ config(
+    materialized='ephemeral',
+    tags=['profiling']
+) }}
 
-models:
-  - name: NDC_FileValidation_SourceData
-    description: "NDC Files column level profiling"
-    config:
-      tags: ['profiling']
+{% set profile_columns = var('profiling_columns') %}
 
-    vars:
-      profiling_columns:
-        - ClaimNumber
-        - MemberID
-        - DOSFrom
-        - PaidDate
-        - ServiceCode
-        - ClaimStatus
-        - LineOfBusiness
-        - ServicePaidAmount
-        - PrimaryDiagCode
+{{ log_profile_to_summary(
+    ref('NDC_FileValidation_SourceData'),
+    profile_columns,
+    'ColumnProfile'
+) }}
