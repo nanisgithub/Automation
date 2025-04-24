@@ -1,23 +1,4 @@
-{% macro profile_columns(model, columns) %}
-    {% set results = [] %}
-    {% for col in columns %}
-        {% set q %}
-            SELECT
-                '{{ col }}' AS column_name,
-                COUNT(*) AS total_count,
-                COUNT(*) - COUNT({{ col }}) AS null_count,
-                CASE WHEN COUNT(*) = 0 THEN 0 ELSE CAST(COUNT(*) - COUNT({{ col }}) AS FLOAT) / COUNT(*) * 100 END AS null_pct,
-                COUNT(DISTINCT {{ col }}) AS distinct_count,
-                MIN({{ col }}) AS min_value,
-                MAX({{ col }}) AS max_value
-            FROM {{ model }}
-        {% endset %}
-        {% do results.append(q) %}
-    {% endfor %}
-    {{ results | join(" UNION ALL\n") }}
-{% endmacro %}
-
-
+-- MACRO: log_profile_to_summary (unchanged, used for logging only)
 {% macro log_profile_to_summary(model, columns, test_name) %}
 {% for col in columns %}
     {% call statement('log_profile_' ~ col, fetch_result=False) %}
@@ -44,42 +25,6 @@
          @total_count, @null_count, 0, @null_pct,
          CASE WHEN @null_pct > 0 THEN 'WARN' ELSE 'PASS' END,
          GETDATE(), '{{ var("healthplan") }}', '{{ var("processid") }}', @min_val, @max_val);
-
-
-
     {% endcall %}
 {% endfor %}
 {% endmacro %}
-
-
-
-
-
-{{ config(
-    materialized='table',
-    schema='profiling',
-    alias='ndc_combined_profile_results'
-) }}
-
--- Run and store full profiling metrics
-WITH profile_data AS (
-    {{ profile_columns(
-        ref('NDC_FileValidation_SourceData'),
-        var('profiling_columns')
-    ) }}
-)
-
-SELECT
-    '{{ var("healthplan") }}' AS health_plan,
-    '{{ var("processid") }}' AS process_id,
-    CURRENT_TIMESTAMP AS profiled_at,
-    *
-FROM profile_data;
-
--- Also log key results into summary log table
-{{ log_profile_to_summary(
-    ref('NDC_FileValidation_SourceData'),
-    var('profiling_columns'),
-    'ColumnProfile'
-) }}
-
