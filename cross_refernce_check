@@ -66,3 +66,21 @@ models:
         tests:
           - accepted_values:
               values: [false]
+
+
+
+
+- rules_engine_check:
+    rules:
+      - column: "ClaimStatus"
+        match_values: ["PAID", "P"]
+        amount_column: "ServicePaidAmount"
+        allowed_value_condition: "= 0"
+
+      - column: "ClaimStatus"
+        match_values: ["DENIED", "D"]
+        amount_column: "ServicePaidAmount"
+        allowed_value_condition: "<> 0"
+
+    threshold: 5
+    test_name: "ClaimStatus_Amount_Logic"
