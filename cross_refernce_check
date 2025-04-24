@@ -126,3 +126,30 @@ HAVING
         WHEN total_records.total_count = 0 THEN 0
         ELSE (error_records.error_count * 100.0 / total_records.total_count)
     END > {{ threshold }}
+
+
+
+
+{% test conditional_value_check(model, column, match_values, check_column, check_condition, threshold, test_name) %}
+
+WITH source_data AS (
+    SELECT * FROM {{ model }}
+),
+
+error_data AS (
+    SELECT *
+    FROM source_data
+    WHERE (
+        {{ column }} IN (
+            {% for val in match_values %}
+                {% if val is string %}
+                    '{{ val }}'{% if not loop.last %}, {% endif %}
+                {% else %}
+                    {{ val }}{% if not loop.last %}, {% endif %}
+                {% endif %}
+            {% endfor %}
+        )
+        AND {{ check_column }} {{ check_condition }}
+    )
+)
+
