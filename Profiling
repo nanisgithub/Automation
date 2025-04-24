@@ -53,3 +53,31 @@
     var('profiling_columns'),
     'ColumnProfile'
 ) }}
+
+
+
+
+## 📂 Folder Structure Overview
+
+This project follows a clean and modular layout for profiling and rule-based validation in DBT.
+
+```plaintext
+NDC_Data_Validation/
+│
+├── macros/
+│   ├── validations/                     # Macros for rule-based checks (null, expressions, conditions)
+│   └── profiling/                       # Macros for profiling metrics and logging
+│
+├── models/
+│   ├── staging/                         # Source-layer models
+│   │   └── NDC_FileValidation_SourceData.sql
+
+│   ├── validations/                     # YAML file for DBT tests (rule-based)
+│   │   └── NDC_RuleCheck.yml
+
+│   ├── profiling/                       # YAML + ephemeral model to run column profiling
+│   │   ├── NDC_ProfilingCheck.yml       # vars: list of profiling columns
+│   │   └── ndc_profile_summary_log.sql  # triggers macro, logs stats to summary log
+
+│   └── reference_datasets/              # Any lookup tables (e.g., ICD codes)
+│       └── reference_icd_codes.sql
