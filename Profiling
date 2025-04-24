@@ -1,12 +1,14 @@
-{{ config(
-    materialized='ephemeral',
-    tags=['profiling']
-) }}
+models:
+  NDC_Data_Validation:
+    +materialized: view
 
-{% set profile_columns = var('profiling_columns') %}
+    validations:
+      +tags: ['validation']
 
-{{ log_profile_to_summary(
-    ref('NDC_FileValidation_SourceData'),
-    profile_columns,
-    'ColumnProfile'
-) }}
+    profiling:
+      +tags: ['profiling']
+      vars:
+        profiling_columns:
+          - ClaimNumber
+          - MemberID
+          - ServiceCode
