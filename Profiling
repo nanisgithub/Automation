@@ -1,32 +1,19 @@
-name: NDC_Data_Validation
-version: '1.0'
-config-version: 2
-
-profile: NDC_Data_Validation
-
-model-paths: ["models"]
-macro-paths: ["macros"]
-seed-paths: ["seeds"]
-test-paths: ["tests"]
+version: 2
 
 models:
-  NDC_Data_Validation:
-    +materialized: view
+  - name: NDC_FileValidation_SourceData
+    description: "NDC Files column level profiling"
+    config:
+      tags: ['profiling']
 
-  validations:
-    +tags: ['validation']
-
-  profiling:
-    +tags: ['profiling']
-
-vars:
-  profiling_columns:
-    - ClaimNumber
-    - MemberID
-    - DOSFrom
-    - PaidDate
-    - ServiceCode
-    - ClaimStatus
-    - LineOfBusiness
-    - ServicePaidAmount
-    - PrimaryDiagCode
+    vars:
+      profiling_columns:
+        - ClaimNumber
+        - MemberID
+        - DOSFrom
+        - PaidDate
+        - ServiceCode
+        - ClaimStatus
+        - LineOfBusiness
+        - ServicePaidAmount
+        - PrimaryDiagCode
