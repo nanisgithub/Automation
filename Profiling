@@ -44,7 +44,42 @@
          @total_count, @null_count, 0, @null_pct,
          CASE WHEN @null_pct > 0 THEN 'WARN' ELSE 'PASS' END,
          GETDATE(), '{{ var("healthplan") }}', '{{ var("processid") }}', @min_val, @max_val);
+
+
+
     {% endcall %}
 {% endfor %}
 {% endmacro %}
+
+
+
+
+
+{{ config(
+    materialized='table',
+    schema='profiling',
+    alias='ndc_combined_profile_results'
+) }}
+
+-- Run and store full profiling metrics
+WITH profile_data AS (
+    {{ profile_columns(
+        ref('NDC_FileValidation_SourceData'),
+        var('profiling_columns')
+    ) }}
+)
+
+SELECT
+    '{{ var("healthplan") }}' AS health_plan,
+    '{{ var("processid") }}' AS process_id,
+    CURRENT_TIMESTAMP AS profiled_at,
+    *
+FROM profile_data;
+
+-- Also log key results into summary log table
+{{ log_profile_to_summary(
+    ref('NDC_FileValidation_SourceData'),
+    var('profiling_columns'),
+    'ColumnProfile'
+) }}
 
