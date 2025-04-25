@@ -1,46 +1,67 @@
-version: 2
+# NDC Data Validation & Profiling Project
 
-models:
-  - name: NDC_FileValidation_SourceData
-    description: "NDC File Data validation checks"
-    config:
-      tags: ['validation','profiling']  
+This DBT project validates and profiles the `NDC_FileValidation_SourceData` table. It supports two main processes:
+1. **Rule-Based Data Validation**
+2. **Column-Level Data Profiling**
 
-    # Defines columns used for profiling purposes
-    vars:
-      profiling_columns:
-        - ClaimNumber
-        - MemberID
-        - ServiceCode
-        
-    tests:
-      - column_null_check:
-          columns: "PlaceofService,BillType"
-          threshold: 5
-          test_name: "PlaceofService_BillType_NullCheck"
-      - column_null_check:
-          columns: "PrimaryDiagCode,SecondaryDiagCode,DiagCode3,DiagCode4,DiagCode5"
-          threshold: 5
-          test_name: "DX1_DX5_NullCheck"
-          
-      - reference_table_check:
-          source_columns: ["REPLACE(PrimaryDiagCode, '.', '')", "REPLACE(SecondaryDiagCode, '.', '')"]
-          lookup_table: "Contract.MSTR.ICD_Curr"
-          lookup_column: "DiagnosisCode_NoDec"
-          threshold: 5
-          test_name: "DX1_DX2_Lookup_Check"
-      - reference_table_check:
-          source_columns: ["LEFT(LTRIM(RTRIM(ServiceCode)), 5)"]
-          lookup_table: "Contract.MSTR.CPT_Curr"
-          lookup_column: "ServiceCode"
-          threshold: 5
-          test_name: "ServiceCode_Lookup_Check"
+---
 
-      - conditional_value_check:
-          column: "ClaimStatus"
-          match_values: ["PAID", "P"]
-          # Ensures that paid claims have a positive service paid amount
-          check_column: "CAST(ServicePaidAmount as money)"
-          check_condition: "< 0"
-          threshold: 5
-          test_name: "PaidClaims_PositivePaidAmount_Check"
+## Folder Structure
+
+- `macros/`: Custom test and profiling logic.
+- `models/staging/`: Raw source data table.
+- `models/validations/`: YAML for validation and profiling definitions.
+- `models/profiling/`: SQL model that triggers the profiling macro.
+- `logs/`, `target/`: DBT-generated artifacts.
+
+---
+
+## How It Works
+
+### Validation
+- Rules are defined in `NDC_RuleCheck.yml` under `tests:`.
+- Includes null checks, conditional checks, and reference lookups.
+
+### Profiling
+- Columns to profile are defined under `vars:` in the same YAML.
+- Metrics include: null %, min, max, distinct count.
+- Results go to `DBT_NDC_Validation_SummaryLog` in SQL Server.
+
+---
+
+## Setup
+
+Ensure `dbt_project.yml` has:
+```yaml
+vars:
+  profiling_columns:
+    - ClaimNumber
+    - MemberID
+    - ServiceCode
+```
+
+---
+
+## Run Commands
+
+**Run Validations Only:**
+```bash
+dbt run --select tag:validation --vars '{"healthplan": "MolinaOH", "processid": "PRC10939013707"}'
+```
+
+**Run Profiling Only:**
+```bash
+dbt run --select tag:profiling --vars '{"healthplan": "MolinaOH", "processid": "PRC10939013707"}'
+```
+
+**Run Both Together:**
+```bash
+dbt run --select tag:validation tag:profiling --vars '{"healthplan": "MolinaOH", "processid": "PRC10939013707"}'
+```
+
+---
+
+## Tips
+- Keep `profiling_columns` at the `vars:` root of `dbt_project.yml`.
+- Tag your profiling model with `tags: ['profiling']`.
+- The profiling SQL model must use `materialized='ephemeral'`.
