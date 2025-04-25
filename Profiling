@@ -1,25 +1,48 @@
-name: NDC_Data_Validation
-version: '1.0'
-config-version: 2
+-- MACRO: log_profile_to_summary (log results into NDC Validation Summary log table)
 
-profile: NDC_Data_Validation
+{% macro log_profile_to_summary(model, columns, test_name) %}
+  {% if columns is not none %}
+    {% for col in columns %}
+      {% call statement('log_profile_' ~ col, fetch_result=False) %}
+      DECLARE @total_count INT, @null_count INT, @null_pct FLOAT, @distinct_count INT, @min_val NVARCHAR(100), @max_val NVARCHAR(100);
 
-model-paths: ["models"]
-macro-paths: ["macros"]
-seed-paths: ["seeds"]
-test-paths: ["tests"]
+        SELECT
+            @total_count = COUNT(*),
+            @null_count = COUNT(*) - COUNT({{ col }}),
+            @null_pct = CASE WHEN COUNT(*) = 0 THEN 0 ELSE CAST(COUNT(*) - COUNT({{ col }}) AS FLOAT) / COUNT(*) * 100 END,
+            @distinct_count = COUNT(DISTINCT {{ col }}),
+            @min_val = CAST(MIN({{ col }}) AS NVARCHAR),
+            @max_val = CAST(MAX({{ col }}) AS NVARCHAR)
+        FROM {{ model }};
 
-models:
-  staging:
-    +materialized: ephemeral
 
-  validations:
-    +tags: ['validation']
+		DELETE FROM NonDelegatedClaims.dbo.DBT_NDC_Validation_SummaryLog
+		WHERE 
+				HealthPlan = '{{ var("healthplan") }}'
+				AND ProcessID = '{{ var("processid") }}'
+				AND ModelName = '{{ model.name }}'
+				AND TestName = '{{ test_name }}'
 
-  profiling:
-    +tags: ['profiling']
-    vars:
-      profiling_columns:
-        - ClaimNumber
-        - MemberID
-        - ServiceCode
+
+        INSERT INTO NonDelegatedClaims.dbo.DBT_NDC_Validation_SummaryLog
+        (HealthPlan ,ProcessID, ModelName, TestCategory, TestName, TotalCount, NullCount, NullPercentage, DistinctCount, MinValue, MaxValue)
+		VALUES
+		(
+			'{{ var("healthplan") }}',
+			'{{ var("processid") }}',
+			'{{ model.name }}',
+			'column_profile',
+			'{{ test_name }}_{{ col }}',
+			@total_count,
+			@@null_count,
+			@null_pct,
+			@distinct_count,
+			@min_val,
+			@max_val
+		);
+    {% endcall %}
+    {% endfor %}
+  {% else %}
+    {{ exceptions.raise_compiler_error("The 'columns' list (var('profiling_columns')) is None or not passed.") }}
+  {% endif %}
+{% endmacro %}
