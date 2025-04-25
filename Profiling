@@ -1,11 +1,40 @@
-@echo off
-set /p healthplan=Enter HealthPlan: 
-set /p processid=Enter ProcessID: 
+rules:
+  - rule_id: DIC_001
+    rule_category: data_integrity_check
+    rule_name: duplicate_claims_check
+    description: Check for duplicate ClaimNumber + ClaimLine
+    rule_sql: |
+      SELECT COUNT(DISTINCT ClaimNumber + '||' + ClaimLine)
+      FROM (
+        SELECT HealthPlan, ProcessID, ClaimNumber, ClaimLine,
+               COUNT(*) AS DupCount
+        FROM {{ source('ndc_edi', 'tbl_NDC_COMMON_CLAIM_STAGING') }}
+        WHERE HealthPlan = '{{ client_name }}'
+          AND ProcessID = '{{ process_id }}'
+        GROUP BY HealthPlan, ProcessID, ClaimNumber, ClaimLine
+        HAVING COUNT(*) > 1
+      ) A
+    threshold: 0
+    enabled: true
 
-REM Run DBT profiling model
-dbt run --select tag:profiling --vars "{\"healthplan\": \"%healthplan%\", \"processid\": \"%processid%\"}"
-
-REM Run DBT validation tests
-dbt test --select tag:validation --vars "{\"healthplan\": \"%healthplan%\", \"processid\": \"%processid%\"}"
-
-pause
+  - rule_id: DIC_002
+    rule_category: data_integrity_check
+    rule_name: missing_claimlines_check
+    description: Check for missing claimlines by comparing sequence gaps
+    rule_sql: |
+      WITH cte AS (
+        SELECT ClaimNumber, ClaimLine,
+               LEAD(CAST(ClaimLine AS INT)) OVER (PARTITION BY ProcessID, ClaimNumber ORDER BY CAST(ClaimLine AS INT)) AS NextClaimLine
+        FROM {{ source('ndc_edi', 'tbl_NDC_COMMON_CLAIM_STAGING') }}
+        WHERE HealthPlan = '{{ client_name }}'
+          AND ProcessID = '{{ process_id }}'
+      )
+      SELECT SUM(TotalMissingLines)
+      FROM (
+        SELECT ClaimNumber, SUM(NextClaimLine - CAST(ClaimLine AS INT) - 1) AS TotalMissingLines
+        FROM cte
+        WHERE CAST(ClaimLine AS INT) < NextClaimLine - 1
+        GROUP BY ClaimNumber
+      ) MissingLinesTable
+    threshold: 0
+    enabled: true
