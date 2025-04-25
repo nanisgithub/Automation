@@ -6,6 +6,25 @@ This DBT project validates and profiles the `NDC_FileValidation_SourceData` tabl
 
 ---
 
+NDC_Data_Validation/
+├── dbt_project.yml
+├── README.md
+├── macros/
+│   ├── column_null_check.sql
+│   ├── conditional_value_check.sql
+│   ├── reference_table_check.sql
+│   └── log_profile_to_summary.sql
+├── models/
+│   ├── staging/
+│   │   └── NDC_FileValidation_SourceData.sql
+│   ├── validations/
+│   │   └── NDC_RuleCheck.yml
+│   └── profiling/
+│       └── ndc_profile_summary_log.sql
+├── tests/
+├── logs/
+└── target/
+
 ## Folder Structure
 
 - `macros/`: Custom test and profiling logic.
