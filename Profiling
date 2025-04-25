@@ -1,40 +1,76 @@
-rules:
-  - rule_id: DIC_001
-    rule_category: data_integrity_check
-    rule_name: duplicate_claims_check
-    description: Check for duplicate ClaimNumber + ClaimLine
-    rule_sql: |
-      SELECT COUNT(DISTINCT ClaimNumber + '||' + ClaimLine)
-      FROM (
-        SELECT HealthPlan, ProcessID, ClaimNumber, ClaimLine,
-               COUNT(*) AS DupCount
-        FROM {{ source('ndc_edi', 'tbl_NDC_COMMON_CLAIM_STAGING') }}
-        WHERE HealthPlan = '{{ client_name }}'
-          AND ProcessID = '{{ process_id }}'
-        GROUP BY HealthPlan, ProcessID, ClaimNumber, ClaimLine
-        HAVING COUNT(*) > 1
-      ) A
-    threshold: 0
-    enabled: true
+version: 2
 
-  - rule_id: DIC_002
-    rule_category: data_integrity_check
-    rule_name: missing_claimlines_check
-    description: Check for missing claimlines by comparing sequence gaps
-    rule_sql: |
-      WITH cte AS (
-        SELECT ClaimNumber, ClaimLine,
-               LEAD(CAST(ClaimLine AS INT)) OVER (PARTITION BY ProcessID, ClaimNumber ORDER BY CAST(ClaimLine AS INT)) AS NextClaimLine
-        FROM {{ source('ndc_edi', 'tbl_NDC_COMMON_CLAIM_STAGING') }}
-        WHERE HealthPlan = '{{ client_name }}'
-          AND ProcessID = '{{ process_id }}'
-      )
-      SELECT SUM(TotalMissingLines)
-      FROM (
-        SELECT ClaimNumber, SUM(NextClaimLine - CAST(ClaimLine AS INT) - 1) AS TotalMissingLines
-        FROM cte
-        WHERE CAST(ClaimLine AS INT) < NextClaimLine - 1
-        GROUP BY ClaimNumber
-      ) MissingLinesTable
-    threshold: 0
-    enabled: true
+models:
+  - name: NDC_FileValidation_SourceData
+    description: "NDC File Data Validation and Profiling"
+
+    config:
+      tags: ['validation', 'profiling']
+
+    vars:
+      profiling_columns:
+        - ClaimNumber
+        - MemberID
+        - ServiceCode
+
+    tests:
+      - column_null_check:
+          columns: "PlaceofService,BillType"
+          threshold: 5
+          test_name: "PlaceofService_BillType_NullCheck"
+
+      - column_null_check:
+          columns: "PrimaryDiagCode,SecondaryDiagCode,DiagCode3,DiagCode4,DiagCode5"
+          threshold: 5
+          test_name: "DX1_DX5_NullCheck"
+
+      - reference_table_check:
+          source_columns: ["REPLACE(PrimaryDiagCode, '.', '')", "REPLACE(SecondaryDiagCode, '.', '')"]
+          lookup_table: "Contract.MSTR.ICD_Curr"
+          lookup_column: "DiagnosisCode_NoDec"
+          threshold: 5
+          test_name: "DX1_DX2_Lookup_Check"
+
+      - reference_table_check:
+          source_columns: ["LEFT(LTRIM(RTRIM(ServiceCode)), 5)"]
+          lookup_table: "Contract.MSTR.CPT_Curr"
+          lookup_column: "ServiceCode"
+          threshold: 5
+          test_name: "ServiceCode_Lookup_Check"
+
+      - conditional_value_check:
+          column: "ClaimStatus"
+          match_values: ["PAID", "P"]
+          check_column: "ServicePaidAmount"
+          check_condition: "< 0"
+          threshold: 5
+          test_name: "PaidClaims_PositivePaidAmount_Check"
+
+      - data_integrity_check:
+          sql: |
+            SELECT COUNT(*)
+            FROM (
+              SELECT ClaimNumber, ClaimLine, COUNT(*)
+              FROM {{ model }}
+              GROUP BY ClaimNumber, ClaimLine
+              HAVING COUNT(*) > 1
+            ) A
+          threshold: 0
+          test_name: "Duplicate_ClaimLines_Check"
+
+      - data_integrity_check:
+          sql: |
+            WITH cte AS (
+              SELECT ClaimNumber, ClaimLine,
+                     LEAD(CAST(ClaimLine AS INT)) OVER (PARTITION BY ClaimNumber ORDER BY CAST(ClaimLine AS INT)) AS NextClaimLine
+              FROM {{ model }}
+            )
+            SELECT SUM(MissingLines)
+            FROM (
+              SELECT ClaimNumber,
+                     NextClaimLine - CAST(ClaimLine AS INT) - 1 AS MissingLines
+              FROM cte
+              WHERE CAST(ClaimLine AS INT) < NextClaimLine - 1
+            ) MissingLinesTable
+          threshold: 0
+          test_name: "Missing_ClaimLines_Check"
