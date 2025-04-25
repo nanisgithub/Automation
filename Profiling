@@ -74,3 +74,20 @@ models:
             ) MissingLinesTable
           threshold: 0
           test_name: "Missing_ClaimLines_Check"
+
+
+
+
+{% test data_integrity_check(model, sql, threshold, test_name) %}
+  {% set rendered_sql = sql | replace("{{ model }}", model) %}
+
+  WITH result AS (
+    {{ rendered_sql }}
+  )
+  SELECT
+    CASE WHEN result_count > {{ threshold }} THEN 1 ELSE 0 END AS test_result
+  FROM (
+    SELECT COALESCE(MAX(CAST(result_column AS INT)), 0) AS result_count
+    FROM result
+  ) r
+{% endtest %}
