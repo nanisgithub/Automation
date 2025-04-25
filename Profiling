@@ -1,86 +1,11 @@
-# NDC Data Validation & Profiling Project
+@echo off
+set /p healthplan=Enter HealthPlan: 
+set /p processid=Enter ProcessID: 
 
-This DBT project validates and profiles the `NDC_FileValidation_SourceData` table. It supports two main processes:
-1. **Rule-Based Data Validation**
-2. **Column-Level Data Profiling**
+REM Run DBT profiling model
+dbt run --select tag:profiling --vars "{\"healthplan\": \"%healthplan%\", \"processid\": \"%processid%\"}"
 
----
+REM Run DBT validation tests
+dbt test --select tag:validation --vars "{\"healthplan\": \"%healthplan%\", \"processid\": \"%processid%\"}"
 
-NDC_Data_Validation/
-├── dbt_project.yml
-├── README.md
-├── macros/
-│   ├── column_null_check.sql
-│   ├── conditional_value_check.sql
-│   ├── reference_table_check.sql
-│   └── log_profile_to_summary.sql
-├── models/
-│   ├── staging/
-│   │   └── NDC_FileValidation_SourceData.sql
-│   ├── validations/
-│   │   └── NDC_RuleCheck.yml
-│   └── profiling/
-│       └── ndc_profile_summary_log.sql
-├── tests/
-├── logs/
-└── target/
-
-## Folder Structure
-
-- `macros/`: Custom test and profiling logic.
-- `models/staging/`: Raw source data table.
-- `models/validations/`: YAML for validation and profiling definitions.
-- `models/profiling/`: SQL model that triggers the profiling macro.
-- `logs/`, `target/`: DBT-generated artifacts.
-
----
-
-## How It Works
-
-### Validation
-- Rules are defined in `NDC_RuleCheck.yml` under `tests:`.
-- Includes null checks, conditional checks, and reference lookups.
-
-### Profiling
-- Columns to profile are defined under `vars:` in the same YAML.
-- Metrics include: null %, min, max, distinct count.
-- Results go to `DBT_NDC_Validation_SummaryLog` in SQL Server.
-
----
-
-## Setup
-
-Ensure `dbt_project.yml` has:
-```yaml
-vars:
-  profiling_columns:
-    - ClaimNumber
-    - MemberID
-    - ServiceCode
-```
-
----
-
-## Run Commands
-
-**Run Validations Only:**
-```bash
-dbt run --select tag:validation --vars '{"healthplan": "MolinaOH", "processid": "PRC10939013707"}'
-```
-
-**Run Profiling Only:**
-```bash
-dbt run --select tag:profiling --vars '{"healthplan": "MolinaOH", "processid": "PRC10939013707"}'
-```
-
-**Run Both Together:**
-```bash
-dbt run --select tag:validation tag:profiling --vars '{"healthplan": "MolinaOH", "processid": "PRC10939013707"}'
-```
-
----
-
-## Tips
-- Keep `profiling_columns` at the `vars:` root of `dbt_project.yml`.
-- Tag your profiling model with `tags: ['profiling']`.
-- The profiling SQL model must use `materialized='ephemeral'`.
+pause
