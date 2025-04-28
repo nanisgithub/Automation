@@ -12,6 +12,7 @@ CREATE TABLE dbo.DBT_NDC_Validation_RunLog (
 
 
 
+
 @echo off
 setlocal enabledelayedexpansion
 
