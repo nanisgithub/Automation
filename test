@@ -1,98 +1,31 @@
-CREATE TABLE dbo.DBT_NDC_Validation_RunLog (
-    RunID INT IDENTITY(1,1) PRIMARY KEY,
-    RunStartTime DATETIME,
-    RunEndTime DATETIME,
-    HealthPlan NVARCHAR(100),
-    ProcessID NVARCHAR(100),
-    ProfilingStatus NVARCHAR(50),
-    ValidationStatus NVARCHAR(50),
-    OverallStatus NVARCHAR(50),
-    InsertedAt DATETIME DEFAULT GETDATE()
-);
+# PowerShell script to read inputs and call batch file
 
+# SQL query to fetch one active row
+$query = "SELECT TOP 1 HealthPlan, ProcessID FROM dbo.DBT_HealthPlan_Process_Input WHERE IsActive = 1 ORDER BY ID"
 
-@echo off
-setlocal enabledelayedexpansion
+# Connection string
+$connectionString = "Server=YourServerName;Database=YourDatabaseName;Integrated Security=True;"
 
-REM Capture Start Time (formatted cleanly)
-for /f "tokens=2 delims==" %%I in ('"wmic os get localdatetime /value"') do set datetime=%%I
-set starttime=%datetime:~0,4%-%datetime:~4,2%-%datetime:~6,2% %datetime:~8,2%:%datetime:~10,2%:%datetime:~12,2%
+# Execute query
+$connection = New-Object System.Data.SqlClient.SqlConnection
+$connection.ConnectionString = $connectionString
+$connection.Open()
 
-REM Get HealthPlan and ProcessID from user
-set /p healthplan=Enter HealthPlan: 
-set /p processid=Enter ProcessID: 
+$command = $connection.CreateCommand()
+$command.CommandText = $query
 
-REM Run DBT Profiling
-dbt run --select tag:profiling --vars "{\"healthplan\": \"%healthplan%\", \"processid\": \"%processid%\"}"
-if %errorlevel% neq 0 (
-    set profiling_status=FAIL
-) else (
-    set profiling_status=SUCCESS
-)
+$reader = $command.ExecuteReader()
 
-REM Run DBT Validations
-dbt test --select tag:validation --vars "{\"healthplan\": \"%healthplan%\", \"processid\": \"%processid%\"}"
-if %errorlevel% neq 0 (
-    set validation_status=FAIL
-) else (
-    set validation_status=SUCCESS
-)
+if ($reader.Read()) {
+    $healthplan = $reader["HealthPlan"]
+    $processid = $reader["ProcessID"]
 
-REM Capture End Time (formatted cleanly)
-for /f "tokens=2 delims==" %%I in ('"wmic os get localdatetime /value"') do set datetime=%%I
-set endtime=%datetime:~0,4%-%datetime:~4,2%-%datetime:~6,2% %datetime:~8,2%:%datetime:~10,2%:%datetime:~12,2%
+    # Now call batch script with parameters
+    Start-Process -NoNewWindow -FilePath "C:\DBT_Projects\NDC_Data_Validation\run_dbt_with_inputs.bat" -ArgumentList $healthplan, $processid
+}
+else {
+    Write-Host "No active inputs found!"
+}
 
-REM Calculate Overall Status
-if "%profiling_status%"=="SUCCESS" if "%validation_status%"=="SUCCESS" (
-    set overall_status=SUCCESS
-) else (
-    set overall_status=FAIL
-)
-
-REM Insert run log into SQL Server using Windows Authentication
-sqlcmd -S YourServerName -d YourDatabaseName -E -Q "INSERT INTO dbo.DBT_NDC_Validation_RunLog (RunStartTime, RunEndTime, HealthPlan, ProcessID, ProfilingStatus, ValidationStatus, OverallStatus) VALUES ('%starttime%', '%endtime%', '%healthplan%', '%processid%', '%profiling_status%', '%validation_status%', '%overall_status%')"
-
-pause
-
-
-
-@echo off
-setlocal enabledelayedexpansion
-
-set /p healthplan=Enter HealthPlan: 
-set /p processid=Enter ProcessID: 
-
-REM Capture Start Time
-set starttime=%date% %time%
-
-REM Run DBT Profiling
-dbt run --select tag:profiling --vars "{\"healthplan\": \"%healthplan%\", \"processid\": \"%processid%\"}"
-if %errorlevel% neq 0 (
-    set profiling_status=FAIL
-) else (
-    set profiling_status=SUCCESS
-)
-
-REM Run DBT Validations
-dbt test --select tag:validation --vars "{\"healthplan\": \"%healthplan%\", \"processid\": \"%processid%\"}"
-if %errorlevel% neq 0 (
-    set validation_status=FAIL
-) else (
-    set validation_status=SUCCESS
-)
-
-REM Capture End Time
-set endtime=%date% %time%
-
-REM Calculate Overall Status
-if "%profiling_status%"=="SUCCESS" if "%validation_status%"=="SUCCESS" (
-    set overall_status=SUCCESS
-) else (
-    set overall_status=FAIL
-)
-
-REM Insert into SQL Server Log Table using Windows Authentication (-E flag)
-
-sqlcmd -S YourServerName -d YourDatabaseName -E -Q "INSERT INTO dbo.DBT_NDC_Validation_RunLog (RunStartTime, RunEndTime, HealthPlan, ProcessID, ProfilingStatus, ValidationStatus, OverallStatus) VALUES (CAST('%starttime%' AS DATETIME), CAST('%endtime%' AS DATETIME), '%healthplan%', '%processid%', '%profiling_status%', '%validation_status%', '%overall_status%')"
-
-pause
+$reader.Close()
+$connection.Close()
