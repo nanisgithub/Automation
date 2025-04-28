@@ -1,0 +1,11 @@
+CREATE TABLE dbo.DBT_NDC_Validation_RunLog (
+    RunID INT IDENTITY(1,1) PRIMARY KEY,
+    RunStartTime DATETIME,
+    RunEndTime DATETIME,
+    HealthPlan NVARCHAR(100),
+    ProcessID NVARCHAR(100),
+    ProfilingStatus NVARCHAR(50),
+    ValidationStatus NVARCHAR(50),
+    OverallStatus NVARCHAR(50),
+    InsertedAt DATETIME DEFAULT GETDATE()
+);
