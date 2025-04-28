@@ -11,6 +11,49 @@ CREATE TABLE dbo.DBT_NDC_Validation_RunLog (
 );
 
 
+@echo off
+setlocal enabledelayedexpansion
+
+REM Capture Start Time (formatted cleanly)
+for /f "tokens=2 delims==" %%I in ('"wmic os get localdatetime /value"') do set datetime=%%I
+set starttime=%datetime:~0,4%-%datetime:~4,2%-%datetime:~6,2% %datetime:~8,2%:%datetime:~10,2%:%datetime:~12,2%
+
+REM Get HealthPlan and ProcessID from user
+set /p healthplan=Enter HealthPlan: 
+set /p processid=Enter ProcessID: 
+
+REM Run DBT Profiling
+dbt run --select tag:profiling --vars "{\"healthplan\": \"%healthplan%\", \"processid\": \"%processid%\"}"
+if %errorlevel% neq 0 (
+    set profiling_status=FAIL
+) else (
+    set profiling_status=SUCCESS
+)
+
+REM Run DBT Validations
+dbt test --select tag:validation --vars "{\"healthplan\": \"%healthplan%\", \"processid\": \"%processid%\"}"
+if %errorlevel% neq 0 (
+    set validation_status=FAIL
+) else (
+    set validation_status=SUCCESS
+)
+
+REM Capture End Time (formatted cleanly)
+for /f "tokens=2 delims==" %%I in ('"wmic os get localdatetime /value"') do set datetime=%%I
+set endtime=%datetime:~0,4%-%datetime:~4,2%-%datetime:~6,2% %datetime:~8,2%:%datetime:~10,2%:%datetime:~12,2%
+
+REM Calculate Overall Status
+if "%profiling_status%"=="SUCCESS" if "%validation_status%"=="SUCCESS" (
+    set overall_status=SUCCESS
+) else (
+    set overall_status=FAIL
+)
+
+REM Insert run log into SQL Server using Windows Authentication
+sqlcmd -S YourServerName -d YourDatabaseName -E -Q "INSERT INTO dbo.DBT_NDC_Validation_RunLog (RunStartTime, RunEndTime, HealthPlan, ProcessID, ProfilingStatus, ValidationStatus, OverallStatus) VALUES ('%starttime%', '%endtime%', '%healthplan%', '%processid%', '%profiling_status%', '%validation_status%', '%overall_status%')"
+
+pause
+
 
 
 @echo off
