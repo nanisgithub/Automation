@@ -76,3 +76,20 @@ models:
         test_name: "Client_Duplicates_ByHealthPlan"
         description: "Performs duplicate check based on HealthPlan using external config file"
         tags: ['validation', 'data_integrity_check']
+
+
+
+
+
+
+version: 1
+
+duplicate_checks:
+  - HealthPlan: MolinaOH
+    Columns: [ClaimNumber, ClaimLine]
+
+  - HealthPlan: AnthemKY
+    Columns: [ClaimNumber, DOSFrom, BilledAmount]
+
+  - HealthPlan: UHCIL
+    Columns: [ClaimNumber, RenderingNPI]
