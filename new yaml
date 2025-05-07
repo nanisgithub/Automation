@@ -1,0 +1,78 @@
+version: 2
+
+models:
+  - name: NDC_FileValidation_SourceData
+    description: "NDC File Data validation checks"
+    config:
+      tags: ['validation', 'profiling']
+
+    tests:
+      - column_null_check:
+          columns: "PlaceofService,BillType"
+          threshold: 5
+          test_name: "PlaceofService_BillType_NullCheck"
+
+      - column_null_check:
+          columns: "PrimaryDiagCode,SecondaryDiagCode,DiagCode3,DiagCode4,DiagCode5"
+          threshold: 5
+          test_name: "DX1_DX5_NullCheck"
+
+      - reference_table_check:
+          source_columns: ["REPLACE(PrimaryDiagCode, '.', '')", "REPLACE(SecondaryDiagCode, '.', '')"]
+          lookup_table: "Contract.MSTR.ICD_Curr"
+          lookup_column: "DiagnosisCode_NoDec"
+          threshold: 5
+          test_name: "DX1_DX2_Lookup_Check"
+
+      - reference_table_check:
+          source_columns: ["LEFT(LTRIM(RTRIM(ServiceCode)), 5)"]
+          lookup_table: "Contract.MSTR.CPT_Curr"
+          lookup_column: "ServiceCode"
+          threshold: 5
+          test_name: "ServiceCode_Lookup_Check"
+
+      - conditional_value_check:
+          column: "ClaimStatus"
+          match_values: ["PAID", "P"]
+          check_column: "CAST(ServicePaidAmount as money)"
+          check_condition: "< 0"
+          threshold: 5
+          test_name: "PaidClaims_PositivePaidAmount_Check"
+
+      - conditional_value_check:
+          column: "ClaimStatus"
+          match_values: ["DENIED", "D"]
+          check_column: "CAST(ServicePaidAmount as money)"
+          check_condition: "!= 0"
+          threshold: 5
+          test_name: "DeniedClaims_ZeroPaidAmount_Check"
+
+      - conditional_value_check:
+          column: "ClaimStatus"
+          match_values: ["REVERSED", "R"]
+          check_column: "CAST(ServicePaidAmount as money)"
+          check_condition: "> 0"
+          threshold: 5
+          test_name: "ReverseClaims_NegativeAmount_Check"
+
+      - conditional_value_check:
+          column: "CAST(AllowedAmount as money)"
+          match_values: [0]
+          check_column: "CAST(ServicePaidAmount as money)"
+          check_condition: "!= 0"
+          threshold: 5
+          test_name: "Zero_AllowedAmount_NonZero_PaidAmount_Check"
+
+      - conditional_value_check:
+          column: "CAST(SubmittedAmount as money)"
+          match_values: [0]
+          check_column: "CAST(ServicePaidAmount as money)"
+          check_condition: "!= 0"
+          threshold: 5
+          test_name: "Zero_SubmittedAmount_NonZero_PaidAmount_Check"
+
+      # NEW: Client-Specific Duplicate Check from external YAML
+      - name: duplicate_check
+        test_name: "Client_Duplicates_ByHealthPlan"
+        description: "Performs duplicate check based on HealthPlan using external config file"
+        tags: ['validation', 'data_integrity_check']
