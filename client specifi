@@ -10,64 +10,37 @@
     {% endif %}
 
     {% set rule_set = client_rules[0]['Tests'] %}
+    {% set result_queries = [] %}
 
     {% for rule in rule_set %}
         {% if rule['type'] == 'duplicate_check' %}
+            {% set cols = rule['columns'] %}
             {% set test_name = rule.get('test_name', 'DuplicateCheck') %}
             {% set threshold = rule.get('threshold', 5) %}
-            {% set cols = rule['columns'] %}
-            {% set col_expr = cols | join(', ') %}
-            {% set group_expr = cols | join(', ') %}
 
-            {% call statement('log_result_' ~ test_name, fetch_result=False) %}
+            {% set query %}
+                select
+                    '{{ model.name }}' as SourceTable,
+                    '{{ healthplan }}' as HealthPlan,
+                    '{{ processid }}' as ProcessID,
+                    '{{ test_name }}' as RuleName,
+                    'Duplicate Check' as RuleCategory,
+                    '{{ cols | join(', ') }}' as RuleColumn,
+                    count(*) as FailedCount,
+                    count(*) over () as TotalCount,
+                    current_timestamp as RunTime
+                from {{ model }}
+                where HealthPlan = '{{ healthplan }}'
+                group by {{ cols | join(', ') }}
+                having count(*) > 1
+            {% endset %}
 
-                DECLARE @total_count INT = 0,
-                        @error_count INT = 0,
-                        @error_percentage DECIMAL(5,2) = 0.0,
-                        @result_status NVARCHAR(10) = 'PASS';
-
-                SELECT @total_count = COUNT(*) FROM {{ model }} WHERE HealthPlan = '{{ healthplan }}';
-
-                SELECT @error_count = COUNT(*) FROM (
-                    SELECT {{ col_expr }}
-                    FROM {{ model }}
-                    WHERE HealthPlan = '{{ healthplan }}'
-                    GROUP BY {{ group_expr }}
-                    HAVING COUNT(*) > 1
-                ) AS duplicates;
-
-                IF @total_count > 0
-                    SET @error_percentage = (100.0 * @error_count) / @total_count;
-
-                IF @error_percentage > {{ threshold }}
-                    SET @result_status = 'FAIL';
-
-                INSERT INTO {{ target.schema }}.NDC_DataValidation_Summary_Log (
-                    SourceTable, HealthPlan, ProcessID, RuleName, RuleCategory,
-                    RuleColumn, TotalCount, FailedCount, ThresholdPercentage,
-                    ErrorPercentage, ResultStatus, RunTime
-                )
-                VALUES (
-                    '{{ model.name }}',
-                    '{{ healthplan }}',
-                    '{{ processid }}',
-                    '{{ test_name }}',
-                    'Duplicate Check',
-                    '{{ col_expr }}',
-                    @total_count,
-                    @error_count,
-                    {{ threshold }},
-                    @error_percentage,
-                    @result_status,
-                    CURRENT_TIMESTAMP
-                );
-
-            {% endcall %}
-
+            {% do result_queries.append(query) %}
         {% endif %}
     {% endfor %}
 
-    -- Return dummy select to satisfy DBT test contract
-    select 1 as result where 1 = 0
+    {% set final_sql = result_queries | join(' union all ') %}
+
+    {{ return(final_sql) }}
 
 {% endtest %}
