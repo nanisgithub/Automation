@@ -1,0 +1,73 @@
+{% test client_specific_checks(model) %}
+
+    {% set healthplan = var('healthplan') %}
+    {% set processid = var('processid', 'NA') %}
+    {% set config_data = fromyaml(load_file('models/validations/Client_Specific_Rules.yml')) %}
+    {% set client_rules = config_data['client_specific_rules'] | selectattr('HealthPlan', 'equalto', healthplan) | list %}
+
+    {% if client_rules | length == 0 %}
+        {{ exceptions.raise_compiler_error("No rules configured for HealthPlan: " ~ healthplan) }}
+    {% endif %}
+
+    {% set rule_set = client_rules[0]['Tests'] %}
+
+    {% for rule in rule_set %}
+        {% if rule['type'] == 'duplicate_check' %}
+            {% set test_name = rule.get('test_name', 'DuplicateCheck') %}
+            {% set threshold = rule.get('threshold', 5) %}
+            {% set cols = rule['columns'] %}
+            {% set col_expr = cols | join(', ') %}
+            {% set group_expr = cols | join(', ') %}
+
+            {% call statement('log_result_' ~ test_name, fetch_result=False) %}
+
+                DECLARE @total_count INT = 0,
+                        @error_count INT = 0,
+                        @error_percentage DECIMAL(5,2) = 0.0,
+                        @result_status NVARCHAR(10) = 'PASS';
+
+                SELECT @total_count = COUNT(*) FROM {{ model }} WHERE HealthPlan = '{{ healthplan }}';
+
+                SELECT @error_count = COUNT(*) FROM (
+                    SELECT {{ col_expr }}
+                    FROM {{ model }}
+                    WHERE HealthPlan = '{{ healthplan }}'
+                    GROUP BY {{ group_expr }}
+                    HAVING COUNT(*) > 1
+                ) AS duplicates;
+
+                IF @total_count > 0
+                    SET @error_percentage = (100.0 * @error_count) / @total_count;
+
+                IF @error_percentage > {{ threshold }}
+                    SET @result_status = 'FAIL';
+
+                INSERT INTO {{ target.schema }}.NDC_DataValidation_Summary_Log (
+                    SourceTable, HealthPlan, ProcessID, RuleName, RuleCategory,
+                    RuleColumn, TotalCount, FailedCount, ThresholdPercentage,
+                    ErrorPercentage, ResultStatus, RunTime
+                )
+                VALUES (
+                    '{{ model.name }}',
+                    '{{ healthplan }}',
+                    '{{ processid }}',
+                    '{{ test_name }}',
+                    'Duplicate Check',
+                    '{{ col_expr }}',
+                    @total_count,
+                    @error_count,
+                    {{ threshold }},
+                    @error_percentage,
+                    @result_status,
+                    CURRENT_TIMESTAMP
+                );
+
+            {% endcall %}
+
+        {% endif %}
+    {% endfor %}
+
+    -- Return dummy select to satisfy DBT test contract
+    select 1 as result where 1 = 0
+
+{% endtest %}
