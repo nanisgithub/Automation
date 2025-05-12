@@ -1,0 +1,93 @@
+ontributing to the NDC Data Validation DBT Project
+
+Welcome! This document will help you get started contributing to this DBT project, especially if you're new to DBT, Git, or this repo.
+
+---
+
+## ✅ Getting Started as a Developer
+
+### 1. Clone the Repository
+
+```bash
+cd C:git clone https://github.com/your-org/your-repo-name.git
+cd your-repo-name
+```
+
+---
+
+### 2. Open the Project in VS Code
+
+- Option 1: In the terminal, run `code .`
+- Option 2: Open VS Code → `File > Open Folder` → select the project folder
+
+---
+
+### 3. Install Prerequisites
+
+- **Python 3.10+**
+- **DBT for SQL Server**
+  ```bash
+  pip install dbt-sqlserver
+  ```
+
+---
+
+### 4. Set Up Your DBT Profile
+
+Edit `C:\Users\<YourName>\.dbt\profiles.yml`:
+
+```yaml
+ndc_data_validation:
+  target: dev
+  outputs:
+    dev:
+      type: sqlserver
+      driver: "ODBC Driver 17 for SQL Server"
+      server: "your_server_name"
+      port: 1433
+      database: "your_db_name"
+      schema: "dbo"
+      user: "your_username"
+      password: "your_password"
+      threads: 1
+```
+
+---
+
+## 🧪 Running the Project
+
+To compile and test the project:
+
+```bash
+dbt clean
+dbt deps
+dbt compile
+dbt run
+dbt test
+```
+
+To run client-specific tests:
+
+```bash
+dbt test --select NDC_FileValidation_SourceData --vars "{healthplan: 'MolinaOH', processid: 'PRC123'}"
+```
+
+---
+
+## ✍️ Making Code Changes
+
+- Always create a new branch:
+  ```bash
+  git checkout -b feature/my-change
+  ```
+
+- After changes:
+  ```bash
+  git add .
+  git commit -m "Describe your change"
+  git push origin feature/my-change
+  ```
+
+Then open a **Pull Request (PR)** in GitHub.
+
+---
